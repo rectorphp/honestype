@@ -4,6 +4,9 @@ name: docblock-check
 on:
   pull_request:
 
+env:
+  DOCBLOCK_CHECK_LOG: /tmp/docblock-check.log
+
 jobs:
   docblock-check:
     runs-on: ubuntu-latest
@@ -29,15 +32,19 @@ jobs:
       - name: Instrument sources
         run: honestype instrument src
 
+      # Load the helper for every PHP process, including parallel test workers
+      # that do not inherit a -d auto_prepend_file flag.
+      - name: Enable runtime helper globally
+        run: |
+          INI="$(php -i | grep '^Loaded Configuration File' | awk '{print $NF}')"
+          echo "auto_prepend_file=$GITHUB_WORKSPACE/src/docblock_check.php" | sudo tee -a "$INI"
+
       - name: Run tests (collect mismatches)
-        env:
-          DOCBLOCK_CHECK_LOG: ${{ github.workspace }}/docblock-check.log
         run: vendor/bin/phpunit || true   # tests may fail; we only need the log
 
       - name: Restore sources
         if: always()
         run: git checkout -- src && rm -f src/docblock_check.php
 
-      - name: Report and annotate
-        run: |
-          honestype report -github "${{ github.workspace }}/docblock-check.log" || echo "no mismatches"
+      - name: List docblock type mismatches
+        run: honestype report "$DOCBLOCK_CHECK_LOG"
