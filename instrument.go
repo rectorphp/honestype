@@ -157,7 +157,7 @@ func buildEdits(src []byte, doc *token.Token, params []ast.Vertex, bodyOpen int,
 				continue // docblock var not an actual parameter
 			}
 			line := doc.Position.StartLine + newlinesBefore(doc.Value, m[0])
-			fmt.Fprintf(&calls, "\n    __docblock_check(%s, %s, __FILE__, %d, 'param %s');",
+			fmt.Fprintf(&calls, "\n    if (\\function_exists('__docblock_check')) \\__docblock_check(%s, %s, __FILE__, %d, 'param %s');",
 				varTok, expectedExpr(base), line, varTok)
 		}
 		if calls.Len() > 0 {
@@ -177,7 +177,7 @@ func buildEdits(src []byte, doc *token.Token, params []ast.Vertex, bodyOpen int,
 				}
 				ep := ret.Expr.GetPosition()
 				expr := string(src[ep.StartPos:ep.EndPos])
-				wrapped := fmt.Sprintf("{ $__dbr = %s; __docblock_check($__dbr, %s, __FILE__, %d, 'return'); return $__dbr; }",
+				wrapped := fmt.Sprintf("{ $__dbr = %s; if (\\function_exists('__docblock_check')) \\__docblock_check($__dbr, %s, __FILE__, %d, 'return'); return $__dbr; }",
 					expr, expectedExpr(base), line)
 				edits = append(edits, edit{start: ret.Position.StartPos, end: ret.Position.EndPos, text: wrapped})
 			}
