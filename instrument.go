@@ -208,7 +208,7 @@ func buildEdits(src []byte, doc *token.Token, params []ast.Vertex, bodyOpen int,
 // tolerating spaces inside generics/brackets (e.g. `array<int, Foo>`). It
 // returns the type, the remainder of the line, and whether the tag matched.
 func tagType(rawLine, tag string) (string, string, bool) {
-	line := strings.TrimLeft(rawLine, " \t*")
+	line := strings.TrimLeft(rawLine, " \t*/") // drop indentation and comment markers (/** * )
 	if !strings.HasPrefix(line, tag) {
 		return "", "", false
 	}
