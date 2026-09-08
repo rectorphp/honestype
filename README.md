@@ -61,6 +61,8 @@ an inline annotation on the changed lines.
   outer function's docblock.
 - A class type that does not resolve to a real class/interface/enum (e.g. a
   `@template` generic param such as `TEnum[]`) is skipped, not reported.
+- Only real `array` values are inspected. A `Generator`/`Iterator` value is
+  skipped, since iterating it here would consume the caller's value.
 - `int` vs `float` is strict: an `int` passed where `float[]` is declared is
   reported, matching PHP's own `is_float`.
 - Parsed as PHP 8.3.

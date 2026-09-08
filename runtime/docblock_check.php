@@ -25,8 +25,9 @@ if (!function_exists('__docblock_check')) {
             @file_put_contents($log, $row, FILE_APPEND | LOCK_EX);
         };
 
-        if (!is_iterable($values)) {
-            $record('not-iterable:' . gettype($values), $values);
+        // Only plain arrays are inspected. Generators and other Iterators are
+        // skipped: iterating them here would consume the caller's value.
+        if (!is_array($values)) {
             return;
         }
 
