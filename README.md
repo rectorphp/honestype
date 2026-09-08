@@ -22,13 +22,43 @@ Built on [rectorphp/php-parser-in-go](https://github.com/rectorphp/php-parser-in
    next to the sources.
 2. You run your **unit tests**. Every mismatch is appended to a TSV log
    (`./docblock-check.log`, or `$DOCBLOCK_CHECK_LOG`).
-3. **report** deduplicates the log, prints a table with clickable `file:line`
-   locations and a source snippet per finding, and can emit Checkstyle XML
+3. **report** deduplicates the log and prints the findings PHPStan-style
+   (grouped per file, with a `Line` column); it can also emit Checkstyle XML
    (`-checkstyle`) and/or GitHub Actions annotations (`-github`).
 4. Restore the sources with `git checkout` once the log is collected.
 
 The instrumentation only observes - it never changes behaviour. A file already
 containing `__docblock_check(` is skipped, so re-running is safe.
+
+## What the instrumentation looks like
+
+For each iterable `@param`/`@return`, a guarded check is injected - at the top of
+the body for a parameter, and wrapped around each `return` for the return type.
+The check is a no-op unless the runtime helper is loaded, so behaviour never
+changes.
+
+```diff
+ /**
+  * @param Node[] $nodes
+  * @return Node[]
+  */
+ public function process(array $nodes): array
+ {
++    if (\function_exists('__docblock_check')) \__docblock_check($nodes, ['v' => ['t' => Node::class]], __FILE__, 3, 'param $nodes');
+     foreach ($nodes as $node) {
+         $node->process();
+     }
+
+-    return $nodes;
++    { $__dbr = $nodes; if (\function_exists('__docblock_check')) \__docblock_check($__dbr, ['v' => ['t' => Node::class]], __FILE__, 4, 'return'); return $__dbr; }
+ }
+```
+
+The second argument is a descriptor built from the docblock type: `Node[]` becomes
+`['v' => ['t' => Node::class]]`, `array<string, Foo>` becomes
+`['k' => 'string', 'v' => ['t' => Foo::class]]`, and `int[][]` becomes
+`['v' => ['v' => ['t' => 'int']]]`. Class types are emitted as `Name::class` so
+they resolve against the file's namespace and `use` imports.
 
 ## Usage
 
