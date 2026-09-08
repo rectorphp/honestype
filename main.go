@@ -20,8 +20,9 @@ func usage() {
 	fmt.Fprint(os.Stderr, `docblockcheck - spot invalid @param/@return array types at runtime
 
 Usage:
-  docblockcheck instrument <path>          Inject checks into .php files in place,
+  docblockcheck instrument <path>...       Inject checks into .php files in place,
                                            write docblock_check.php next to them.
+                                           Accepts multiple paths.
   docblockcheck report [-checkstyle out.xml] [-github] <log>
                                            Render the collected log as a table
                                            with source snippets; optionally emit
@@ -49,7 +50,7 @@ func main() {
 			usage()
 			os.Exit(2)
 		}
-		changed, err := instrumentTree(os.Args[2])
+		changed, err := instrumentTree(os.Args[2:]...)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
