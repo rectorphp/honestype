@@ -21,7 +21,9 @@ fi
 cd "$WORK/framework"
 
 echo ">> composer install"
-composer install --no-interaction --no-progress --quiet
+# --ignore-platform-reqs: skip optional ext requirements (ext-gmp etc.) not
+# needed by the narrow test slice.
+composer install --no-interaction --no-progress --quiet --ignore-platform-reqs
 
 echo ">> instrument src/"
 "$DBC" instrument src
