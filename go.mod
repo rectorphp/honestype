@@ -1,4 +1,4 @@
-module honestype/docblockcheck
+module github.com/rectorphp/honestype
 
 go 1.26
 
