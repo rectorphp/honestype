@@ -1,0 +1,4 @@
+/docblockcheck
+/dbc
+*.log
+checkstyle.xml

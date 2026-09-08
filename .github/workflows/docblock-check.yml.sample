@@ -1,0 +1,53 @@
+# Copy into a target PHP repo as .github/workflows/docblock-check.yml
+name: docblock-check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  docblock-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build docblockcheck
+        run: go build -o /usr/local/bin/docblockcheck .
+        working-directory: tools/docblockcheck   # adjust to where this tool lives
+
+      - name: Install PHP deps
+        run: composer install --no-interaction --no-progress
+
+      - name: Instrument sources
+        run: docblockcheck instrument src
+
+      - name: Run tests (collect mismatches)
+        env:
+          DOCBLOCK_CHECK_LOG: ${{ github.workspace }}/docblock-check.log
+        run: vendor/bin/phpunit || true   # tests may fail; we only need the log
+
+      - name: Render Checkstyle report
+        run: |
+          docblockcheck report -checkstyle checkstyle.xml \
+            "${{ github.workspace }}/docblock-check.log" || true
+
+      - name: Annotate PR
+        uses: reviewdog/action-setup@v1
+      - run: |
+          reviewdog -f=checkstyle -name=docblock-check \
+            -reporter=github-pr-review -filter-mode=nofilter -level=warning \
+            < checkstyle.xml
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
