@@ -24,6 +24,10 @@ type mismatch struct {
 // optionally writes a Checkstyle XML file and/or GitHub Actions annotations.
 func renderReport(logPath, checkstyleOut string, githubAnnotations bool) error {
 	f, err := os.Open(logPath)
+	if os.IsNotExist(err) {
+		renderConsole(nil) // no log written means no mismatches
+		return nil
+	}
 	if err != nil {
 		return err
 	}
