@@ -40,55 +40,66 @@ type edit struct {
 	text  string
 }
 
-// instrumentTree rewrites every eligible .php file under root in place and
-// writes the runtime helper next to it. Returns count of changed files.
-func instrumentTree(root string) (int, error) {
-	info, err := os.Stat(root)
-	if err != nil {
-		return 0, err
-	}
+// skipDirs are directory names never descended into during instrumentation.
+var skipDirs = map[string]bool{
+	"vendor": true, "node_modules": true, ".git": true,
+	"Fixture": true, "Fixtures": true, "Source": true,
+}
 
-	var files []string
-	helperDir := root
-	if info.IsDir() {
-		err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				switch d.Name() {
-				case "vendor", "node_modules", ".git":
-					return filepath.SkipDir
+// instrumentTree rewrites every eligible .php file under each root in place and
+// writes the runtime helper next to it. Returns total count of changed files.
+func instrumentTree(roots ...string) (int, error) {
+	changed := 0
+	helperWritten := map[string]bool{}
+	for _, root := range roots {
+		info, err := os.Stat(root)
+		if err != nil {
+			return changed, err
+		}
+
+		var files []string
+		helperDir := root
+		if info.IsDir() {
+			err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if d.IsDir() {
+					if skipDirs[d.Name()] {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				if strings.HasSuffix(path, ".php") {
+					files = append(files, path)
 				}
 				return nil
+			})
+			if err != nil {
+				return changed, err
 			}
-			if strings.HasSuffix(path, ".php") {
-				files = append(files, path)
+		} else {
+			files = []string{root}
+			helperDir = filepath.Dir(root)
+		}
+
+		for _, f := range files {
+			did, err := instrumentFile(f)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "skip %s: %v\n", f, err)
+				continue
 			}
-			return nil
-		})
-		if err != nil {
-			return 0, err
+			if did {
+				changed++
+			}
 		}
-	} else {
-		files = []string{root}
-		helperDir = filepath.Dir(root)
-	}
 
-	changed := 0
-	for _, f := range files {
-		did, err := instrumentFile(f)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "skip %s: %v\n", f, err)
-			continue
+		if !helperWritten[helperDir] {
+			if err := writeHelper(helperDir); err != nil {
+				return changed, err
+			}
+			helperWritten[helperDir] = true
 		}
-		if did {
-			changed++
-		}
-	}
-
-	if err := writeHelper(helperDir); err != nil {
-		return changed, err
 	}
 	return changed, nil
 }

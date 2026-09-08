@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -139,7 +140,71 @@ func renderConsole(list []mismatch) {
 		fmt.Println()
 	}
 
+	renderSnippets(list)
+
 	fmt.Printf(" [ERROR] Found %d docblock type mismatch(es)\n\n", len(list))
+}
+
+// funcDeclRe matches a function/method declaration, capturing its name.
+var funcDeclRe = regexp.MustCompile(`\bfunction\s+(\w+)\s*\(`)
+
+// renderSnippets prints, per finding, the failing method and a source excerpt of
+// five lines above and below the offending line.
+func renderSnippets(list []mismatch) {
+	for _, m := range list {
+		ln, err := strconv.Atoi(m.line)
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile(m.file)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		if ln < 1 || ln > len(lines) {
+			continue
+		}
+
+		header := fmt.Sprintf(" %s:%d", displayPath(m.file), ln)
+		if method := enclosingMethod(lines, ln); method != "" {
+			header += "  in " + method
+		}
+		fmt.Println(header)
+		fmt.Printf("   %s\n\n", findingText(m))
+
+		start := ln - 5
+		if start < 1 {
+			start = 1
+		}
+		end := ln + 5
+		if end > len(lines) {
+			end = len(lines)
+		}
+		width := len(strconv.Itoa(end))
+		for i := start; i <= end; i++ {
+			marker := "  "
+			if i == ln {
+				marker = "> "
+			}
+			fmt.Printf("   %s%*d | %s\n", marker, width, i, lines[i-1])
+		}
+		fmt.Println()
+	}
+}
+
+// enclosingMethod returns the name of the first function/method declared at or
+// below the docblock line the finding points to (the docblock sits directly
+// above its function). Empty when none is found.
+func enclosingMethod(lines []string, line int) string {
+	for i := line - 1; i < len(lines); i++ {
+		if i < 0 {
+			continue
+		}
+		if match := funcDeclRe.FindStringSubmatch(lines[i]); match != nil {
+			return match[1] + "()"
+		}
+	}
+	return ""
 }
 
 // findingText is the per-line message shown in the console box.
