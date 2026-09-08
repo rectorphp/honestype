@@ -4,11 +4,6 @@ name: docblock-check
 on:
   pull_request:
 
-permissions:
-  contents: read
-  pull-requests: write
-  checks: write
-
 jobs:
   docblock-check:
     runs-on: ubuntu-latest
@@ -23,31 +18,26 @@ jobs:
         with:
           go-version: '1.26'
 
-      - name: Build docblockcheck
-        run: go build -o /usr/local/bin/docblockcheck .
-        working-directory: tools/docblockcheck   # adjust to where this tool lives
+      - name: Install honestype
+        run: |
+          go install github.com/rectorphp/honestype@main
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Install PHP deps
         run: composer install --no-interaction --no-progress
 
       - name: Instrument sources
-        run: docblockcheck instrument src
+        run: honestype instrument src
 
       - name: Run tests (collect mismatches)
         env:
           DOCBLOCK_CHECK_LOG: ${{ github.workspace }}/docblock-check.log
         run: vendor/bin/phpunit || true   # tests may fail; we only need the log
 
-      - name: Render Checkstyle report
-        run: |
-          docblockcheck report -checkstyle checkstyle.xml \
-            "${{ github.workspace }}/docblock-check.log" || true
+      - name: Restore sources
+        if: always()
+        run: git checkout -- src && rm -f src/docblock_check.php
 
-      - name: Annotate PR
-        uses: reviewdog/action-setup@v1
-      - run: |
-          reviewdog -f=checkstyle -name=docblock-check \
-            -reporter=github-pr-review -filter-mode=nofilter -level=warning \
-            < checkstyle.xml
-        env:
-          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Report and annotate
+        run: |
+          honestype report -github "${{ github.workspace }}/docblock-check.log" || echo "no mismatches"

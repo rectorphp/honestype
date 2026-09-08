@@ -1,23 +1,30 @@
 # docblockcheck
 
-Spots invalid `@param`/`@return` array types (`string[]`, `int[]`, `Foo[]`, ...)
-by checking them against real runtime values while your unit tests run, then
-renders the differences - optionally as a Checkstyle report for PR annotations.
+Spots invalid `@param`/`@return` iterable types (`string[]`, `Foo[]`,
+`array<int, Foo>`, `Collection<Foo>`, `int[][]`, ...) by checking them against
+real runtime values while your unit tests run, then renders the differences - as
+a console table with source snippets, a Checkstyle report, and/or GitHub PR
+annotations.
 
 Built on [rectorphp/php-parser-in-go](https://github.com/rectorphp/php-parser-in-go).
 
 ## How it works
 
 1. **instrument** parses each `.php` file and injects a tiny type check for every
-   single-dimension array docblock type:
+   iterable docblock type:
    - `@param T[] $x` -> a check at the top of the function body
    - `@return T[]` -> each `return` in that scope is wrapped and its value checked
+   Supported type syntax: `T[]`, `T[][]` (nested), `array<V>` / `list<V>` /
+   `iterable<V>`, `array<K, V>` (key checked too), `SomeCollection<V>` /
+   `SomeCollection<K, V>` (container asserted, then elements), and `X|null`.
    Class types are emitted as `Name::class`, so they resolve against the file's
    namespace and `use` imports. The runtime helper `docblock_check.php` is written
    next to the sources.
 2. You run your **unit tests**. Every mismatch is appended to a TSV log
    (`./docblock-check.log`, or `$DOCBLOCK_CHECK_LOG`).
-3. **report** deduplicates the log, prints a summary, and can emit Checkstyle XML.
+3. **report** deduplicates the log, prints a table with clickable `file:line`
+   locations and a source snippet per finding, and can emit Checkstyle XML
+   (`-checkstyle`) and/or GitHub Actions annotations (`-github`).
 4. Restore the sources with `git checkout` once the log is collected.
 
 The instrumentation only observes - it never changes behaviour. A file already
@@ -48,21 +55,21 @@ git checkout -- src/ && rm -f src/docblock_check.php docblock-check.log
 ## PR annotations (GitHub Actions)
 
 A ready-to-copy workflow is in `.github/workflows/docblock-check.yml.sample`. It
-runs the pipeline and feeds the Checkstyle report to
-[reviewdog](https://github.com/reviewdog/reviewdog), which posts each mismatch as
-an inline annotation on the changed lines.
+runs the pipeline and calls `report -github`, which prints
+`::warning file=...,line=...` workflow commands so each mismatch shows as an
+inline annotation on the file and line - no external action required.
 
 ## Scope and limits
 
-- Only single-dimension trailing-`[]` types are handled (`Foo[]`, `?int[]`).
-  Multi-dimension (`int[][]`), generics (`array<int, string>`) and unions
-  (`int|string[]`) are ignored.
+- Union element types beyond `X|null` (e.g. `Foo|Bar`) are skipped, to avoid
+  false positives.
 - `@return` inside nested closures/arrow functions is not attributed to the
   outer function's docblock.
 - A class type that does not resolve to a real class/interface/enum (e.g. a
   `@template` generic param such as `TEnum[]`) is skipped, not reported.
-- Only real `array` values are inspected. A `Generator`/`Iterator` value is
-  skipped, since iterating it here would consume the caller's value.
+- `array` and `IteratorAggregate` values (Laravel `Collection`, `ArrayObject`,
+  ...) are traversed; a `Generator` or one-shot `Iterator` is skipped, since
+  iterating it here would consume the caller's value.
 - `int` vs `float` is strict: an `int` passed where `float[]` is declared is
   reported, matching PHP's own `is_float`.
 - Parsed as PHP 8.3.

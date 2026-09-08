@@ -18,11 +18,20 @@ import (
 const marker = "__docblock_check("
 
 var (
-	// Single-dimension array types only: string[], Foo[], ?int[], \A\B[].
-	arrayTypeRe = regexp.MustCompile(`^\??\\?[A-Za-z_][A-Za-z0-9_\\]*\[\]$`)
-	paramTagRe  = regexp.MustCompile(`@param\s+(\S+)\s+(\$\w+)`)
-	returnTagRe = regexp.MustCompile(`@return\s+(\S+)`)
+	varNameRe = regexp.MustCompile(`^\$\w+`)
+	identRe   = regexp.MustCompile(`^\\?[A-Za-z_][A-Za-z0-9_\\]*$`)
 )
+
+var scalarTypes = map[string]bool{
+	"string": true, "int": true, "integer": true, "float": true, "double": true,
+	"bool": true, "boolean": true, "array": true, "callable": true, "object": true,
+	"iterable": true, "scalar": true, "mixed": true, "null": true, "void": true,
+}
+
+var builtinCollections = map[string]bool{
+	"array": true, "iterable": true, "list": true,
+	"non-empty-array": true, "non-empty-list": true,
+}
 
 // edit is a byte-range replacement in the source ([start,end) -> text).
 type edit struct {
@@ -140,25 +149,28 @@ func buildEdits(src []byte, doc *token.Token, params []ast.Vertex, bodyOpen int,
 		return nil
 	}
 	var edits []edit
+	docLines := strings.Split(string(doc.Value), "\n")
 
 	// @param checks, inserted at the top of the body.
 	if bodyOpen >= 0 {
 		names := paramVarNames(params)
 		var calls strings.Builder
-		for _, m := range paramTagRe.FindAllStringSubmatchIndex(string(doc.Value), -1) {
-			typ := string(doc.Value[m[2]:m[3]])
-			varTok := string(doc.Value[m[4]:m[5]]) // like $names
-			base, ok := arrayBase(typ)
+		for k, raw := range docLines {
+			typ, after, ok := tagType(raw, "@param")
 			if !ok {
 				continue
 			}
-			name := strings.TrimPrefix(varTok, "$")
-			if !names[name] {
-				continue // docblock var not an actual parameter
+			desc, iterable, ok := parseType(typ)
+			if !ok || !iterable {
+				continue
 			}
-			line := doc.Position.StartLine + newlinesBefore(doc.Value, m[0])
+			varTok := varNameRe.FindString(strings.TrimSpace(after))
+			if varTok == "" || !names[strings.TrimPrefix(varTok, "$")] {
+				continue // no matching parameter
+			}
+			line := doc.Position.StartLine + k
 			fmt.Fprintf(&calls, "\n    if (\\function_exists('__docblock_check')) \\__docblock_check(%s, %s, __FILE__, %d, 'param %s');",
-				varTok, expectedExpr(base), line, varTok)
+				varTok, desc, line, varTok)
 		}
 		if calls.Len() > 0 {
 			edits = append(edits, edit{start: bodyOpen, end: bodyOpen, text: calls.String()})
@@ -166,25 +178,69 @@ func buildEdits(src []byte, doc *token.Token, params []ast.Vertex, bodyOpen int,
 	}
 
 	// @return check, wrapping each scoped return statement.
-	rm := returnTagRe.FindSubmatchIndex(doc.Value)
-	if rm != nil {
-		base, ok := arrayBase(string(doc.Value[rm[2]:rm[3]]))
-		if ok {
-			line := doc.Position.StartLine + newlinesBefore(doc.Value, rm[0])
-			for _, ret := range collectScopedReturns(stmts) {
-				if isNilVertex(ret.Expr) {
-					continue // `return;` has nothing to check
-				}
-				ep := ret.Expr.GetPosition()
-				expr := string(src[ep.StartPos:ep.EndPos])
-				wrapped := fmt.Sprintf("{ $__dbr = %s; if (\\function_exists('__docblock_check')) \\__docblock_check($__dbr, %s, __FILE__, %d, 'return'); return $__dbr; }",
-					expr, expectedExpr(base), line)
-				edits = append(edits, edit{start: ret.Position.StartPos, end: ret.Position.EndPos, text: wrapped})
-			}
+	for k, raw := range docLines {
+		typ, _, ok := tagType(raw, "@return")
+		if !ok {
+			continue
 		}
+		desc, iterable, ok := parseType(typ)
+		if !ok || !iterable {
+			break
+		}
+		line := doc.Position.StartLine + k
+		for _, ret := range collectScopedReturns(stmts) {
+			if isNilVertex(ret.Expr) {
+				continue // `return;` has nothing to check
+			}
+			ep := ret.Expr.GetPosition()
+			expr := string(src[ep.StartPos:ep.EndPos])
+			wrapped := fmt.Sprintf("{ $__dbr = %s; if (\\function_exists('__docblock_check')) \\__docblock_check($__dbr, %s, __FILE__, %d, 'return'); return $__dbr; }",
+				expr, desc, line)
+			edits = append(edits, edit{start: ret.Position.StartPos, end: ret.Position.EndPos, text: wrapped})
+		}
+		break // only the first @return
 	}
 
 	return edits
+}
+
+// tagType extracts the type token following a docblock tag on one line,
+// tolerating spaces inside generics/brackets (e.g. `array<int, Foo>`). It
+// returns the type, the remainder of the line, and whether the tag matched.
+func tagType(rawLine, tag string) (string, string, bool) {
+	line := strings.TrimLeft(rawLine, " \t*")
+	if !strings.HasPrefix(line, tag) {
+		return "", "", false
+	}
+	rest := line[len(tag):]
+	if rest != "" && rest[0] != ' ' && rest[0] != '\t' {
+		return "", "", false // e.g. @param vs @paramfoo
+	}
+	rest = strings.TrimSpace(rest)
+	typ, after := extractTypeToken(rest)
+	if typ == "" {
+		return "", "", false
+	}
+	return typ, after, true
+}
+
+// extractTypeToken reads a type up to the first depth-0 whitespace, so a type
+// with internal spaces inside <>, [] or () stays intact.
+func extractTypeToken(s string) (string, string) {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '<', '[', '(':
+			depth++
+		case '>', ']', ')':
+			depth--
+		case ' ', '\t':
+			if depth <= 0 {
+				return s[:i], s[i:]
+			}
+		}
+	}
+	return s, ""
 }
 
 // docComment returns the /** */ docblock among the leading tokens of a
@@ -239,34 +295,143 @@ func paramVarNames(params []ast.Vertex) map[string]bool {
 	return names
 }
 
-// arrayBase returns the element type of a single-dimension array docblock type.
-func arrayBase(typ string) (string, bool) {
-	if !arrayTypeRe.MatchString(typ) {
-		return "", false
+// parseType converts a docblock type into a PHP descriptor literal the runtime
+// helper interprets. It reports whether the type is an iterable worth checking
+// (an array, list, or typed collection) and whether parsing succeeded.
+//
+// Descriptor shapes (PHP array literals):
+//
+//	leaf:      ['t' => 'string']            or ['t' => Foo::class, 'null' => true]
+//	container: ['v' => <desc>]              (+ 'k' => 'string', + 'c' => Coll::class)
+func parseType(s string) (expr string, iterable bool, ok bool) {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "?")
+	if s == "" {
+		return "", false, false
 	}
-	base := strings.TrimSuffix(typ, "[]")
-	base = strings.TrimPrefix(base, "?")
-	return base, true
+
+	// Trailing [] (top level, since generics use <>): Foo[] , Foo[][].
+	if strings.HasSuffix(s, "[]") {
+		vexpr, _, vok := parseType(s[:len(s)-2])
+		if !vok {
+			return "", false, false
+		}
+		return "['v' => " + vexpr + "]", true, true
+	}
+
+	// Generic: Name<...>.
+	if i := strings.IndexByte(s, '<'); i >= 0 && strings.HasSuffix(s, ">") {
+		name := strings.TrimSpace(s[:i])
+		args := splitTopComma(s[i+1 : len(s)-1])
+		lname := strings.ToLower(strings.TrimPrefix(name, "\\"))
+		builtin := builtinCollections[lname]
+
+		var value string
+		var keyPart string
+		switch len(args) {
+		case 1:
+			vexpr, _, vok := parseType(args[0])
+			if !vok {
+				return "", false, false
+			}
+			value = vexpr
+		case 2:
+			if kexpr, kok := leafKeyExpr(args[0]); kok {
+				keyPart = "'k' => " + kexpr + ", "
+			}
+			vexpr, _, vok := parseType(args[1])
+			if !vok {
+				return "", false, false
+			}
+			value = vexpr
+		default:
+			return "", false, false
+		}
+
+		if builtin {
+			return "[" + keyPart + "'v' => " + value + "]", true, true
+		}
+		if !identRe.MatchString(name) {
+			return "", false, false
+		}
+		return "['c' => " + name + "::class, " + keyPart + "'v' => " + value + "]", true, true
+	}
+
+	// Leaf (scalar keyword or class), optionally `X|null`.
+	return leafExpr(s)
 }
 
-func newlinesBefore(b []byte, offset int) int {
-	return strings.Count(string(b[:offset]), "\n")
+func leafExpr(s string) (string, bool, bool) {
+	nullable := false
+	base := ""
+	count := 0
+	for _, p := range strings.Split(s, "|") {
+		p = strings.TrimSpace(p)
+		if strings.EqualFold(p, "null") {
+			nullable = true
+			continue
+		}
+		base = p
+		count++
+	}
+	if count != 1 {
+		return "", false, false // unions beyond `X|null` are not checked
+	}
+	t, ok := typeExpr(base)
+	if !ok {
+		return "", false, false
+	}
+	expr := "['t' => " + t
+	if nullable {
+		expr += ", 'null' => true"
+	}
+	return expr + "]", false, true
 }
 
-var scalarTypes = map[string]bool{
-	"string": true, "int": true, "integer": true, "float": true, "double": true,
-	"bool": true, "boolean": true, "array": true, "callable": true, "object": true,
-	"iterable": true, "scalar": true, "mixed": true, "null": true, "void": true,
-}
-
-// expectedExpr renders the PHP expression the check receives as its expected
-// type. Scalar keywords become a quoted string; a class type becomes
-// `Name::class`, so PHP resolves it against the file's namespace and imports.
-func expectedExpr(base string) string {
+// typeExpr renders a single leaf type: a quoted scalar keyword, or `Name::class`
+// so PHP resolves the class against the file's namespace and imports.
+func typeExpr(base string) (string, bool) {
 	if scalarTypes[strings.ToLower(base)] {
-		return "'" + strings.ReplaceAll(base, "'", "\\'") + "'"
+		return "'" + strings.ToLower(base) + "'", true
 	}
-	return base + "::class"
+	if identRe.MatchString(base) {
+		return base + "::class", true
+	}
+	return "", false
+}
+
+// leafKeyExpr renders a supported array-key type; ok=false means "do not check
+// the key" rather than a hard failure.
+func leafKeyExpr(arg string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(arg)) {
+	case "string":
+		return "'string'", true
+	case "int", "integer":
+		return "'int'", true
+	case "array-key", "int|string", "string|int":
+		return "'array-key'", true
+	}
+	return "", false
+}
+
+// splitTopComma splits on commas not nested inside <> or [].
+func splitTopComma(s string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i, c := range s {
+		switch c {
+		case '<', '[':
+			depth++
+		case '>', ']':
+			depth--
+		case ',':
+			if depth == 0 {
+				out = append(out, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, s[start:])
 }
 
 // applyEdits splices edits into src; edits are applied right-to-left so earlier

@@ -22,9 +22,11 @@ func usage() {
 Usage:
   docblockcheck instrument <path>          Inject checks into .php files in place,
                                            write docblock_check.php next to them.
-  docblockcheck report [-checkstyle out.xml] <log>
-                                           Render the collected log; optionally
-                                           emit a Checkstyle XML report.
+  docblockcheck report [-checkstyle out.xml] [-github] <log>
+                                           Render the collected log as a table
+                                           with source snippets; optionally emit
+                                           a Checkstyle XML report and/or GitHub
+                                           Actions annotations.
 
 Workflow:
   1. docblockcheck instrument src/
@@ -57,12 +59,13 @@ func main() {
 	case "report":
 		fs := flag.NewFlagSet("report", flag.ExitOnError)
 		checkstyle := fs.String("checkstyle", "", "write a Checkstyle XML report to this path")
+		github := fs.Bool("github", false, "emit GitHub Actions ::warning annotations")
 		_ = fs.Parse(os.Args[2:])
 		if fs.NArg() < 1 {
 			usage()
 			os.Exit(2)
 		}
-		if err := renderReport(fs.Arg(0), *checkstyle); err != nil {
+		if err := renderReport(fs.Arg(0), *checkstyle, *github); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
