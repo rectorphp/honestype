@@ -1,4 +1,5 @@
 /docblockcheck
 /dbc
+/honestype
 *.log
 checkstyle.xml
