@@ -45,7 +45,7 @@ if (!function_exists('__docblock_check')) {
             }
             if (!__docblock_leaf_ok($value, $desc['t'])) {
                 $exp = $desc['t'] . (!empty($desc['null']) ? '|null' : '');
-                $errors[] = ['ctx' => $path, 'exp' => $exp, 'act' => __docblock_typename($value), 'sample' => __docblock_sample($value)];
+                $errors[] = ['ctx' => $path, 'exp' => $exp, 'act' => __docblock_describe($value), 'sample' => __docblock_sample($value)];
             }
             return;
         }
@@ -54,7 +54,7 @@ if (!function_exists('__docblock_check')) {
         if (isset($desc['c'])) {
             $c = ltrim((string) $desc['c'], '\\');
             if ((class_exists($c) || interface_exists($c)) && !($value instanceof $c)) {
-                $errors[] = ['ctx' => $path, 'exp' => $desc['c'], 'act' => __docblock_typename($value), 'sample' => __docblock_sample($value)];
+                $errors[] = ['ctx' => $path, 'exp' => $desc['c'], 'act' => __docblock_describe($value), 'sample' => __docblock_sample($value)];
                 return;
             }
         }
@@ -130,8 +130,59 @@ if (!function_exists('__docblock_check')) {
         return is_object($v) ? get_class($v) : gettype($v);
     }
 
+    // Rich type description: for an array, report the element type(s) it holds
+    // (e.g. `Stmt\Expression[]`, `array<Foo|Bar>`) rather than a bare `array`.
+    function __docblock_describe($v): string
+    {
+        if (is_object($v)) {
+            return get_class($v);
+        }
+        if (is_array($v)) {
+            return __docblock_describe_array($v, 0);
+        }
+        return gettype($v);
+    }
+
+    function __docblock_describe_array(array $a, int $depth): string
+    {
+        if ($a === []) {
+            return 'array';
+        }
+        if ($depth >= 2) {
+            return 'array';
+        }
+
+        $types = [];
+        $i = 0;
+        foreach ($a as $element) {
+            if (is_object($element)) {
+                $types[get_class($element)] = true;
+            } elseif (is_array($element)) {
+                $types[__docblock_describe_array($element, $depth + 1)] = true;
+            } else {
+                $types[gettype($element)] = true;
+            }
+            if (++$i >= 50) {
+                break;
+            }
+        }
+
+        $names = array_keys($types);
+        sort($names);
+        if (count($names) > 3) {
+            $names = array_slice($names, 0, 3);
+            $names[] = '...';
+        }
+        $inner = implode('|', $names);
+
+        return array_is_list($a) ? $inner . '[]' : 'array<' . $inner . '>';
+    }
+
     function __docblock_sample($v): string
     {
+        if (is_array($v)) {
+            return 'array(' . count($v) . ')';
+        }
         return is_scalar($v) ? (string) $v : __docblock_typename($v);
     }
 }
