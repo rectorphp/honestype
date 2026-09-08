@@ -22,14 +22,16 @@ type mismatch struct {
 
 // renderReport reads the TSV log, deduplicates rows, prints a summary, and
 // optionally writes a Checkstyle XML file and/or GitHub Actions annotations.
-func renderReport(logPath, checkstyleOut string, githubAnnotations bool) error {
+// renderReport returns the number of distinct mismatches found so the caller
+// can exit non-zero when any invalid docblock type is present.
+func renderReport(logPath, checkstyleOut string, githubAnnotations bool) (int, error) {
 	f, err := os.Open(logPath)
 	if os.IsNotExist(err) {
 		renderConsole(nil) // no log written means no mismatches
-		return nil
+		return 0, nil
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer f.Close()
 
@@ -46,7 +48,7 @@ func renderReport(logPath, checkstyleOut string, githubAnnotations bool) error {
 		seen[key] = m
 	}
 	if err := sc.Err(); err != nil {
-		return err
+		return 0, err
 	}
 
 	list := make([]mismatch, 0, len(seen))
@@ -66,9 +68,11 @@ func renderReport(logPath, checkstyleOut string, githubAnnotations bool) error {
 		printGitHubAnnotations(list)
 	}
 	if checkstyleOut != "" {
-		return writeCheckstyle(checkstyleOut, list)
+		if err := writeCheckstyle(checkstyleOut, list); err != nil {
+			return len(list), err
+		}
 	}
-	return nil
+	return len(list), nil
 }
 
 // collapseIndices turns concrete element paths (`$nodes[0]`, `return[b]`,

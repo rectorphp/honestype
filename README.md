@@ -24,7 +24,8 @@ Built on [rectorphp/php-parser-in-go](https://github.com/rectorphp/php-parser-in
    (`./docblock-check.log`, or `$DOCBLOCK_CHECK_LOG`).
 3. **report** deduplicates the log and prints the findings PHPStan-style
    (grouped per file, with a `Line` column); it can also emit Checkstyle XML
-   (`-checkstyle`) and/or GitHub Actions annotations (`-github`).
+   (`-checkstyle`) and/or GitHub Actions annotations (`-github`). It exits
+   non-zero when any mismatch is found, so CI fails on an invalid docblock type.
 4. Restore the sources with `git checkout` once the log is collected.
 
 The instrumentation only observes - it never changes behaviour. A file already

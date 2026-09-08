@@ -65,9 +65,13 @@ func main() {
 			usage()
 			os.Exit(2)
 		}
-		if err := renderReport(fs.Arg(0), *checkstyle, *github); err != nil {
+		found, err := renderReport(fs.Arg(0), *checkstyle, *github)
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
+		}
+		if found > 0 {
+			os.Exit(1) // fail CI when any invalid docblock type is present
 		}
 
 	default:
