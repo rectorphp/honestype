@@ -59,6 +59,8 @@ an inline annotation on the changed lines.
   (`int|string[]`) are ignored.
 - `@return` inside nested closures/arrow functions is not attributed to the
   outer function's docblock.
+- A class type that does not resolve to a real class/interface/enum (e.g. a
+  `@template` generic param such as `TEnum[]`) is skipped, not reported.
 - `int` vs `float` is strict: an `int` passed where `float[]` is declared is
   reported, matching PHP's own `is_float`.
 - Parsed as PHP 8.3.

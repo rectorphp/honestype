@@ -69,6 +69,10 @@ if (!function_exists('__docblock_check')) {
         }
 
         $cls = ltrim($t, '\\');
+        // Unknown type (e.g. a @template generic param) - cannot verify, skip.
+        if (!class_exists($cls) && !interface_exists($cls) && !enum_exists($cls)) {
+            return true;
+        }
         return $v instanceof $cls;
     }
 
