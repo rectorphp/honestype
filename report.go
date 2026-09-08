@@ -9,6 +9,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/rectorphp/php-parser-in-go/pkg/ast"
+	"github.com/rectorphp/php-parser-in-go/pkg/conf"
+	"github.com/rectorphp/php-parser-in-go/pkg/parser"
+	"github.com/rectorphp/php-parser-in-go/pkg/token"
+	"github.com/rectorphp/php-parser-in-go/pkg/version"
 )
 
 // mismatch is one deduplicated docblock type violation.
@@ -145,9 +151,6 @@ func renderConsole(list []mismatch) {
 	fmt.Printf(" [ERROR] Found %d docblock type mismatch(es)\n\n", len(list))
 }
 
-// funcDeclRe matches a function/method declaration, capturing its name.
-var funcDeclRe = regexp.MustCompile(`\bfunction\s+(\w+)\s*\(`)
-
 // renderSnippets prints, per finding, the failing method and a source excerpt of
 // five lines above and below the offending line.
 func renderSnippets(list []mismatch) {
@@ -166,7 +169,7 @@ func renderSnippets(list []mismatch) {
 		}
 
 		header := fmt.Sprintf(" %s:%d", displayPath(m.file), ln)
-		if method := enclosingMethod(lines, ln); method != "" {
+		if method := methodAt(data, ln); method != "" {
 			header += "  in " + method
 		}
 		fmt.Println(header)
@@ -192,17 +195,83 @@ func renderSnippets(list []mismatch) {
 	}
 }
 
-// enclosingMethod returns the name of the first function/method declared at or
-// below the docblock line the finding points to (the docblock sits directly
-// above its function). Empty when none is found.
-func enclosingMethod(lines []string, line int) string {
-	for i := line - 1; i < len(lines); i++ {
-		if i < 0 {
+// span is a named source region by line, used to locate the function and class
+// enclosing a finding.
+type span struct {
+	name       string
+	start, end int
+}
+
+// methodAt parses src and returns the function or method (prefixed with its
+// class as `Class::method()`) whose declaration - including its docblock -
+// contains line. Empty when the file does not parse or no owner is found.
+func methodAt(src []byte, line int) string {
+	v, err := version.New("8.3")
+	if err != nil {
+		return ""
+	}
+	root, err := parser.Parse(src, conf.Config{Version: v})
+	if err != nil {
+		return ""
+	}
+
+	var funcs, classes []span
+	walk(root, func(n ast.Vertex) {
+		switch node := n.(type) {
+		case *ast.StmtClass:
+			if node.Position != nil {
+				classes = append(classes, span{identName(node.Name), node.Position.StartLine, node.Position.EndLine})
+			}
+		case *ast.StmtFunction:
+			if node.Position != nil {
+				funcs = append(funcs, span{identName(node.Name) + "()", docStart(node.Position.StartLine, docComment(node.FunctionTkn)), node.Position.EndLine})
+			}
+		case *ast.StmtClassMethod:
+			if node.Position != nil {
+				doc := docComment(leadingToken(node.Modifiers), node.FunctionTkn)
+				funcs = append(funcs, span{identName(node.Name) + "()", docStart(node.Position.StartLine, doc), node.Position.EndLine})
+			}
+		}
+	})
+
+	fn, ok := innermost(funcs, line)
+	if !ok {
+		return ""
+	}
+	if cls, ok := innermost(classes, fn.start); ok && cls.name != "" {
+		return cls.name + "::" + fn.name
+	}
+	return fn.name
+}
+
+// docStart returns the docblock's start line when present, else the declaration
+// line, so a finding on a docblock line still maps to its function.
+func docStart(declLine int, doc *token.Token) int {
+	if doc != nil {
+		return doc.Position.StartLine
+	}
+	return declLine
+}
+
+// innermost returns the tightest span containing line.
+func innermost(spans []span, line int) (span, bool) {
+	best, found := span{}, false
+	for _, s := range spans {
+		if line < s.start || line > s.end {
 			continue
 		}
-		if match := funcDeclRe.FindStringSubmatch(lines[i]); match != nil {
-			return match[1] + "()"
+		if !found || (s.end-s.start) < (best.end-best.start) {
+			best, found = s, true
 		}
+	}
+	return best, found
+}
+
+// identName reads the name from an Identifier vertex, empty for anything else
+// (e.g. an anonymous class).
+func identName(n ast.Vertex) string {
+	if id, ok := n.(*ast.Identifier); ok {
+		return string(id.Value)
 	}
 	return ""
 }

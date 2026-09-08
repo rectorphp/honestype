@@ -10,8 +10,9 @@ Built on [rectorphp/php-parser-in-go](https://github.com/rectorphp/php-parser-in
 
 ## How it works
 
-1. **instrument** parses each `.php` file and injects a tiny type check for every
-   iterable docblock type:
+1. **instrument** takes one or more paths and parses each `.php` file, injecting a
+   tiny type check for every iterable docblock type (`vendor`, `node_modules`,
+   `.git`, `Fixture`, `Fixtures` and `Source` directories are skipped):
    - `@param T[] $x` -> a check at the top of the function body
    - `@return T[]` -> each `return` in that scope is wrapped and its value checked
    Supported type syntax: `T[]`, `T[][]` (nested), `array<V>` / `list<V>` /
@@ -23,7 +24,9 @@ Built on [rectorphp/php-parser-in-go](https://github.com/rectorphp/php-parser-in
 2. You run your **unit tests**. Every mismatch is appended to a TSV log
    (`./docblock-check.log`, or `$DOCBLOCK_CHECK_LOG`).
 3. **report** deduplicates the log and prints the findings PHPStan-style
-   (grouped per file, with a `Line` column); it can also emit Checkstyle XML
+   (grouped per file, with a `Line` column), then, per finding, the failing
+   method and a source excerpt of five lines above and below the offending line;
+   it can also emit Checkstyle XML
    (`-checkstyle`) and/or GitHub Actions annotations (`-github`). It exits
    non-zero when any mismatch is found, so CI fails on an invalid docblock type.
 4. Restore the sources with `git checkout` once the log is collected.
@@ -66,8 +69,9 @@ they resolve against the file's namespace and `use` imports.
 ```bash
 go build -o docblockcheck .
 
-# 1. instrument in place
+# 1. instrument in place (one or more paths)
 ./docblockcheck instrument src/
+./docblockcheck instrument src/ lib/ app/
 
 # 2. make PHPUnit load the helper, e.g. in tests/bootstrap.php:
 #    require __DIR__ . '/../src/docblock_check.php';
