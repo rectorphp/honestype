@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestMethodAt(t *testing.T) {
 	src := []byte(`<?php
@@ -43,6 +46,71 @@ function loose(): array
 		if got := methodAt(src, tc.line); got != tc.want {
 			t.Errorf("methodAt(line=%d) = %q, want %q", tc.line, got, tc.want)
 		}
+	}
+}
+
+func TestFilterSkipped(t *testing.T) {
+	dir := t.TempDir()
+	file := dir + "/Foo.php"
+	src := []byte(`<?php
+namespace App;
+
+class Foo
+{
+    /**
+     * @return int[]
+     */
+    public function bar(): array
+    {
+        return [];
+    }
+
+    /**
+     * @return string[]
+     */
+    public function baz(): array
+    {
+        return [];
+    }
+}
+`)
+	if err := os.WriteFile(file, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	list := []mismatch{
+		{file: file, line: "7", context: "return[]"},  // Foo::bar()
+		{file: file, line: "16", context: "return[]"}, // Foo::baz()
+	}
+
+	tests := []struct {
+		name  string
+		skips skipList
+		want  []string // remaining lines
+	}{
+		{"no skip", nil, []string{"7", "16"}},
+		{"skip bar with parens", skipList{"Foo::bar()"}, []string{"16"}},
+		{"skip bar without parens", skipList{"Foo::bar"}, []string{"16"}},
+		{"skip both", skipList{"Foo::bar()", "Foo::baz()"}, nil},
+		{"unknown method keeps all", skipList{"Foo::nope()"}, []string{"7", "16"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := filterSkipped(list, tc.skips)
+			var lines []string
+			for _, m := range got {
+				lines = append(lines, m.line)
+			}
+			if len(lines) != len(tc.want) {
+				t.Fatalf("filterSkipped() lines = %v, want %v", lines, tc.want)
+			}
+			for i := range lines {
+				if lines[i] != tc.want[i] {
+					t.Errorf("filterSkipped() lines = %v, want %v", lines, tc.want)
+				}
+			}
+		})
 	}
 }
 

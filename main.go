@@ -23,11 +23,12 @@ Usage:
   docblockcheck instrument <path>...       Inject checks into .php files in place,
                                            write docblock_check.php next to them.
                                            Accepts multiple paths.
-  docblockcheck report [-checkstyle out.xml] [-github] <log>
+  docblockcheck report [-checkstyle out.xml] [-github] [-skip 'Class::method()'] <log>
                                            Render the collected log as a table
                                            with source snippets; optionally emit
                                            a Checkstyle XML report and/or GitHub
-                                           Actions annotations.
+                                           Actions annotations. Repeat -skip to
+                                           drop known false-positive methods.
 
 Workflow:
   1. docblockcheck instrument src/
@@ -61,12 +62,14 @@ func main() {
 		fs := flag.NewFlagSet("report", flag.ExitOnError)
 		checkstyle := fs.String("checkstyle", "", "write a Checkstyle XML report to this path")
 		github := fs.Bool("github", false, "emit GitHub Actions ::warning annotations")
+		var skips skipList
+		fs.Var(&skips, "skip", "skip a method's findings as a false positive, e.g. -skip 'Class::method()' (repeatable)")
 		_ = fs.Parse(os.Args[2:])
 		if fs.NArg() < 1 {
 			usage()
 			os.Exit(2)
 		}
-		found, err := renderReport(fs.Arg(0), *checkstyle, *github)
+		found, err := renderReport(fs.Arg(0), *checkstyle, *github, skips)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)

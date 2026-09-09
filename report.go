@@ -27,11 +27,22 @@ type mismatch struct {
 	sample   string
 }
 
+// skipList collects repeatable -skip method references (Class::method()).
+type skipList []string
+
+func (s *skipList) String() string { return strings.Join(*s, ", ") }
+
+func (s *skipList) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
 // renderReport reads the TSV log, deduplicates rows, prints a summary, and
 // optionally writes a Checkstyle XML file and/or GitHub Actions annotations.
-// renderReport returns the number of distinct mismatches found so the caller
-// can exit non-zero when any invalid docblock type is present.
-func renderReport(logPath, checkstyleOut string, githubAnnotations bool) (int, error) {
+// Findings whose enclosing method matches a -skip entry are dropped as known
+// false positives. renderReport returns the number of distinct mismatches found
+// so the caller can exit non-zero when any invalid docblock type is present.
+func renderReport(logPath, checkstyleOut string, githubAnnotations bool, skips skipList) (int, error) {
 	f, err := os.Open(logPath)
 	if os.IsNotExist(err) {
 		renderConsole(nil) // no log written means no mismatches
@@ -68,6 +79,10 @@ func renderReport(logPath, checkstyleOut string, githubAnnotations bool) (int, e
 		}
 		return list[i].line < list[j].line
 	})
+
+	if len(skips) > 0 {
+		list = filterSkipped(list, skips)
+	}
 
 	renderConsole(list)
 
@@ -193,6 +208,37 @@ func renderSnippets(list []mismatch) {
 		}
 		fmt.Println()
 	}
+}
+
+// filterSkipped drops findings whose enclosing method matches a -skip entry.
+func filterSkipped(list []mismatch, skips skipList) []mismatch {
+	skip := map[string]bool{}
+	for _, s := range skips {
+		skip[normalizeMethodRef(s)] = true
+	}
+
+	srcCache := map[string][]byte{}
+	kept := make([]mismatch, 0, len(list))
+	for _, m := range list {
+		src, ok := srcCache[m.file]
+		if !ok {
+			src, _ = os.ReadFile(m.file)
+			srcCache[m.file] = src
+		}
+		if ln, err := strconv.Atoi(m.line); err == nil && src != nil {
+			if method := methodAt(src, ln); method != "" && skip[normalizeMethodRef(method)] {
+				continue
+			}
+		}
+		kept = append(kept, m)
+	}
+	return kept
+}
+
+// normalizeMethodRef strips an optional trailing () and surrounding space so
+// `Class::method` and `Class::method()` compare equal.
+func normalizeMethodRef(s string) string {
+	return strings.TrimSuffix(strings.TrimSpace(s), "()")
 }
 
 // span is a named source region by line, used to locate the function and class

@@ -29,6 +29,7 @@ Built on [rectorphp/php-parser-in-go](https://github.com/rectorphp/php-parser-in
    it can also emit Checkstyle XML
    (`-checkstyle`) and/or GitHub Actions annotations (`-github`). It exits
    non-zero when any mismatch is found, so CI fails on an invalid docblock type.
+   Drop a known false positive with `-skip 'Class::method()'` (repeatable).
 4. Restore the sources with `git checkout` once the log is collected.
 
 The instrumentation only observes - it never changes behaviour. A file already
