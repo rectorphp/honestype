@@ -42,7 +42,7 @@ func (s *skipList) Set(v string) error {
 // Findings whose enclosing method matches a -skip entry are dropped as known
 // false positives. renderReport returns the number of distinct mismatches found
 // so the caller can exit non-zero when any invalid docblock type is present.
-func renderReport(logPath, checkstyleOut string, githubAnnotations, skipArrayKeys bool, skips skipList) (int, error) {
+func renderReport(logPath, checkstyleOut string, githubAnnotations bool, skips skipList) (int, error) {
 	f, err := os.Open(logPath)
 	if os.IsNotExist(err) {
 		renderConsole(nil) // no log written means no mismatches
@@ -80,9 +80,7 @@ func renderReport(logPath, checkstyleOut string, githubAnnotations, skipArrayKey
 		return list[i].line < list[j].line
 	})
 
-	if skipArrayKeys {
-		list = filterArrayKeys(list)
-	}
+	list = filterArrayKeys(list)
 	if len(skips) > 0 {
 		list = filterSkipped(list, skips)
 	}

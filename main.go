@@ -23,14 +23,14 @@ Usage:
   docblockcheck instrument <path>...       Inject checks into .php files in place,
                                            write docblock_check.php next to them.
                                            Accepts multiple paths.
-  docblockcheck report [-checkstyle out.xml] [-github] [-skip 'Class::method()'] [-skip-array-keys] <log>
+  docblockcheck report [-checkstyle out.xml] [-github] [-skip 'Class::method()'] <log>
                                            Render the collected log as a table
                                            with source snippets; optionally emit
                                            a Checkstyle XML report and/or GitHub
                                            Actions annotations. Repeat -skip to
                                            drop known false-positive methods.
-                                           Pass -skip-array-keys to drop all
-                                           array-key type mismatches.
+                                           Array-key type mismatches are always
+                                           dropped.
 
 Workflow:
   1. docblockcheck instrument src/
@@ -64,7 +64,6 @@ func main() {
 		fs := flag.NewFlagSet("report", flag.ExitOnError)
 		checkstyle := fs.String("checkstyle", "", "write a Checkstyle XML report to this path")
 		github := fs.Bool("github", false, "emit GitHub Actions ::warning annotations")
-		skipArrayKeys := fs.Bool("skip-array-keys", false, "drop array-key type mismatches (e.g. array<string, X> keyed by int)")
 		var skips skipList
 		fs.Var(&skips, "skip", "skip a method's findings as a false positive, e.g. -skip 'Class::method()' (repeatable)")
 		_ = fs.Parse(os.Args[2:])
@@ -72,7 +71,7 @@ func main() {
 			usage()
 			os.Exit(2)
 		}
-		found, err := renderReport(fs.Arg(0), *checkstyle, *github, *skipArrayKeys, skips)
+		found, err := renderReport(fs.Arg(0), *checkstyle, *github, skips)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
