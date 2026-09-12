@@ -42,7 +42,7 @@ func (s *skipList) Set(v string) error {
 // Findings whose enclosing method matches a -skip entry are dropped as known
 // false positives. renderReport returns the number of distinct mismatches found
 // so the caller can exit non-zero when any invalid docblock type is present.
-func renderReport(logPath, checkstyleOut string, githubAnnotations bool, skips skipList) (int, error) {
+func renderReport(logPath, checkstyleOut string, githubAnnotations, skipArrayKeys bool, skips skipList) (int, error) {
 	f, err := os.Open(logPath)
 	if os.IsNotExist(err) {
 		renderConsole(nil) // no log written means no mismatches
@@ -80,6 +80,9 @@ func renderReport(logPath, checkstyleOut string, githubAnnotations bool, skips s
 		return list[i].line < list[j].line
 	})
 
+	if skipArrayKeys {
+		list = filterArrayKeys(list)
+	}
 	if len(skips) > 0 {
 		list = filterSkipped(list, skips)
 	}
@@ -229,6 +232,19 @@ func filterSkipped(list []mismatch, skips skipList) []mismatch {
 			if method := methodAt(src, ln); method != "" && skip[normalizeMethodRef(method)] {
 				continue
 			}
+		}
+		kept = append(kept, m)
+	}
+	return kept
+}
+
+// filterArrayKeys drops array-key type mismatches (e.g. `array<string, X>` keyed
+// by int). The runtime helper marks these with a ` key` context suffix.
+func filterArrayKeys(list []mismatch) []mismatch {
+	kept := make([]mismatch, 0, len(list))
+	for _, m := range list {
+		if strings.HasSuffix(m.context, " key") {
+			continue
 		}
 		kept = append(kept, m)
 	}
