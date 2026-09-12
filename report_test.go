@@ -114,6 +114,30 @@ class Foo
 	}
 }
 
+func TestFilterArrayKeys(t *testing.T) {
+	list := []mismatch{
+		{line: "7", context: "$nodes[]"},     // value finding, kept
+		{line: "8", context: "$nodes[] key"}, // key finding, dropped
+		{line: "9", context: "return[] key"}, // key finding, dropped
+		{line: "10", context: "$keyword"},    // value finding, kept (not a key)
+	}
+
+	got := filterArrayKeys(list)
+	var lines []string
+	for _, m := range got {
+		lines = append(lines, m.line)
+	}
+	want := []string{"7", "10"}
+	if len(lines) != len(want) {
+		t.Fatalf("filterArrayKeys() lines = %v, want %v", lines, want)
+	}
+	for i := range lines {
+		if lines[i] != want[i] {
+			t.Errorf("filterArrayKeys() lines = %v, want %v", lines, want)
+		}
+	}
+}
+
 func TestCollapseIndices(t *testing.T) {
 	tests := []struct {
 		in   string

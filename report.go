@@ -80,6 +80,7 @@ func renderReport(logPath, checkstyleOut string, githubAnnotations bool, skips s
 		return list[i].line < list[j].line
 	})
 
+	list = filterArrayKeys(list)
 	if len(skips) > 0 {
 		list = filterSkipped(list, skips)
 	}
@@ -229,6 +230,19 @@ func filterSkipped(list []mismatch, skips skipList) []mismatch {
 			if method := methodAt(src, ln); method != "" && skip[normalizeMethodRef(method)] {
 				continue
 			}
+		}
+		kept = append(kept, m)
+	}
+	return kept
+}
+
+// filterArrayKeys drops array-key type mismatches (e.g. `array<string, X>` keyed
+// by int). The runtime helper marks these with a ` key` context suffix.
+func filterArrayKeys(list []mismatch) []mismatch {
+	kept := make([]mismatch, 0, len(list))
+	for _, m := range list {
+		if strings.HasSuffix(m.context, " key") {
+			continue
 		}
 		kept = append(kept, m)
 	}

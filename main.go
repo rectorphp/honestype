@@ -29,6 +29,8 @@ Usage:
                                            a Checkstyle XML report and/or GitHub
                                            Actions annotations. Repeat -skip to
                                            drop known false-positive methods.
+                                           Array-key type mismatches are always
+                                           dropped.
 
 Workflow:
   1. docblockcheck instrument src/
