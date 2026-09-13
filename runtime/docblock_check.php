@@ -7,7 +7,7 @@
  * e.g. from PHPUnit bootstrap.
  *
  * Log path: env DOCBLOCK_CHECK_LOG, else <cwd>/docblock-check.log
- * Row format: file \t line \t context \t expected \t actual \t sample
+ * Row format: file \t line \t context \t expected \t actual \t sample \t test
  *
  * $desc is a descriptor built by the instrumenter:
  *   leaf:      ['t' => 'string']   or ['t' => Foo::class, 'null' => true]
@@ -25,15 +25,42 @@ if (!function_exists('__docblock_check')) {
         }
 
         $log = getenv('DOCBLOCK_CHECK_LOG') ?: (getcwd() . '/docblock-check.log');
+        $test = __docblock_test_frame();
         $rows = '';
         foreach ($errors as $e) {
             $sample = str_replace(["\t", "\n", "\r"], ' ', $e['sample']);
             if (strlen($sample) > 40) {
                 $sample = substr($sample, 0, 40) . '...';
             }
-            $rows .= implode("\t", [$file, (string) $line, $e['ctx'], $e['exp'], $e['act'], $sample]) . "\n";
+            $rows .= implode("\t", [$file, (string) $line, $e['ctx'], $e['exp'], $e['act'], $sample, $test]) . "\n";
         }
         @file_put_contents($log, $rows, FILE_APPEND | LOCK_EX);
+    }
+
+    // Finds the PHPUnit test method that passed the offending value, by scanning
+    // the call stack for the outermost frame whose class ends in "Test" or whose
+    // method starts with "test". Returns "Class::method (file:line)" or ''.
+    function __docblock_test_frame(): string
+    {
+        $trace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+        for ($i = count($trace) - 1; $i >= 0; $i--) {
+            $frame = $trace[$i];
+            $class = $frame['class'] ?? '';
+            $function = $frame['function'] ?? '';
+            $isTest = str_starts_with($function, 'test')
+                || (str_ends_with($class, 'Test') && $class !== '');
+            if (!$isTest) {
+                continue;
+            }
+            // The call the test method makes into the code under test lives in the
+            // next-inner frame; its file/line point inside the test body.
+            $inner = $trace[$i - 1] ?? $frame;
+            $where = isset($inner['file'], $inner['line'])
+                ? ' (' . $inner['file'] . ':' . $inner['line'] . ')'
+                : '';
+            return ($class !== '' ? $class . '::' : '') . $function . '()' . $where;
+        }
+        return '';
     }
 
     function __docblock_match($value, array $desc, string $path, array &$errors): void
