@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -152,6 +153,29 @@ func TestCollapseIndices(t *testing.T) {
 	for _, tc := range tests {
 		if got := collapseIndices(tc.in); got != tc.want {
 			t.Errorf("collapseIndices(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestDisplayTest(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	abs := filepath.Join(cwd, "tests/FooTest.php")
+
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"FooTest::testBar() (" + abs + ":10)", "FooTest::testBar() (tests/FooTest.php:10)"},
+		{"FooTest::testBar()", "FooTest::testBar()"},
+		{"", ""},
+	}
+
+	for _, tc := range tests {
+		if got := displayTest(tc.in); got != tc.want {
+			t.Errorf("displayTest(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

@@ -25,6 +25,7 @@ type mismatch struct {
 	expected string
 	actual   string
 	sample   string
+	test     string
 }
 
 // skipList collects repeatable -skip method references (Class::method()).
@@ -57,11 +58,15 @@ func renderReport(logPath, checkstyleOut string, githubAnnotations bool, skips s
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for sc.Scan() {
-		parts := strings.SplitN(sc.Text(), "\t", 6)
+		parts := strings.SplitN(sc.Text(), "\t", 7)
 		if len(parts) < 6 {
 			continue
 		}
-		m := mismatch{parts[0], parts[1], collapseIndices(parts[2]), parts[3], parts[4], parts[5]}
+		test := ""
+		if len(parts) == 7 {
+			test = parts[6]
+		}
+		m := mismatch{parts[0], parts[1], collapseIndices(parts[2]), parts[3], parts[4], parts[5], test}
 		key := m.file + "|" + m.line + "|" + m.expected + "|" + m.actual + "|" + m.context
 		seen[key] = m
 	}
@@ -189,7 +194,11 @@ func renderSnippets(list []mismatch) {
 			header += "  in " + method
 		}
 		fmt.Println(header)
-		fmt.Printf("   %s\n\n", findingText(m))
+		fmt.Printf("   %s\n", findingText(m))
+		if m.test != "" {
+			fmt.Printf("   passed by %s\n", displayTest(m.test))
+		}
+		fmt.Println()
 
 		start := ln - 5
 		if start < 1 {
@@ -349,6 +358,21 @@ func displayPath(file string) string {
 	}
 	return file
 }
+
+// displayTest relativizes the file path inside a "Class::method() (file:line)"
+// test reference, leaving the rest untouched.
+func displayTest(test string) string {
+	return testPathRe.ReplaceAllStringFunc(test, func(m string) string {
+		inner := m[2 : len(m)-1] // strip " (" and ")"
+		i := strings.LastIndex(inner, ":")
+		if i < 0 {
+			return m
+		}
+		return " (" + displayPath(inner[:i]) + inner[i:] + ")"
+	})
+}
+
+var testPathRe = regexp.MustCompile(` \([^()]*:\d+\)$`)
 
 // printGitHubAnnotations emits GitHub Actions workflow commands so each finding
 // appears as an inline annotation on the changed file and line. Paths are made
