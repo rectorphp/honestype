@@ -45,6 +45,7 @@ A method declares `@param Node[]` but a caller passes an array of strings:
 
  src/NodeProcessor.php:42  in NodeProcessor::process()
    param $nodes: expected PhpParser\Node, found 'string' (e.g. foo)
+   passed by NodeProcessorTest::testProcess() (tests/NodeProcessorTest.php:31)
 
      39 |     /**
      40 |      * @param Node[] $nodes
@@ -58,7 +59,8 @@ A method declares `@param Node[]` but a caller passes an array of strings:
 
 How to read it: `param $nodes` is the offending docblock, `expected
 PhpParser\Node` is what `@param Node[]` promised, `found 'string'` is the real
-element type, `e.g. foo` is a sample value. Line 42 is the method.
+element type, `e.g. foo` is a sample value. Line 42 is the method, and `passed
+by` is the exact test method - and line - that fed in the wrong value.
 
 **Fix:** correct the docblock to the real type (`@param string[] $nodes`), or
 fix the caller that passes the wrong values. Then re-run steps 3-4.
